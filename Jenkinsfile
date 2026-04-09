@@ -77,6 +77,8 @@ pipeline {
                  sh '''
                     docker stop demo-app-container || true
                     docker rm demo-app-container || true
+                    fuser -k 3000/tcp || true
+                    sleep 2
                     docker run -d -p 3000:3000 --name demo-app-container demo-app
                 '''
             }
@@ -89,14 +91,19 @@ pipeline {
                 try {
                     // Full log capture 
                    def logContent = sh(
-                        script: "curl -s ${BUILD_URL}consoleText",
+                        script: "cat /var/lib/jenkins/jobs/${JOB_NAME}/builds/${BUILD_NUMBER}/log 2>/dev/null || echo 'Log not available'",
                         returnStdout: true
                     ).trim()
+
 
                      def buildBy = sh(
                         script: "echo ${currentBuild.getBuildCauses()[0]?.userId ?: 'jenkins-auto'}",
                         returnStdout: true
                     ).trim()
+
+                     sh """
+                        cat /var/lib/jenkins/jobs/${JOB_NAME}/builds/${BUILD_NUMBER}/log > /tmp/build-log-${BUILD_NUMBER}.txt 2>/dev/null || echo 'Log not available' > /tmp/build-log-${BUILD_NUMBER}.txt
+                    """
 
                     // Log -> backend -> encrypt -> Pinata
                     def logResponse = sh(
