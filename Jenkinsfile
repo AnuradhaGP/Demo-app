@@ -74,108 +74,118 @@ pipeline {
 
         stage('Run Container') {
             steps {
-                 sh '''
-                    docker stop demo-app-container || true
-                    docker rm demo-app-container || true
-                    fuser -k 3000/tcp || true
-                    sleep 2
-                    docker run -d -p 3000:3000 --name demo-app-container demo-app
-                '''
+                  sh '''
+            docker stop demo-app-container || true
+            docker rm demo-app-container || true
+            sleep 3
+            docker run -d -p 3000:3000 --name demo-app-container demo-app || \
+            (docker rm -f demo-app-container && docker run -d -p 3000:3000 --name demo-app-container demo-app)
+        '''
+    }
             }
         }
     }
 
-       post {
-        always {
-            script {
-                try {
-                    // Full log capture 
-                   def logContent = sh(
-                        script: "cat /var/lib/jenkins/jobs/${JOB_NAME}/builds/${BUILD_NUMBER}/log 2>/dev/null || echo 'Log not available'",
-                        returnStdout: true
-                    ).trim()
+      post {
+    always {
+        script {
+            try {
+                def buildId = env.BUILD_ID_BC ?: "demo-app-${BUILD_NUMBER}"
+                def buildBy = currentBuild.getBuildCauses()[0]?.userId ?: 'jenkins-auto'
 
+                // 1. Log clean කරලා file එකට save
+                sh """
+                    cat /var/lib/jenkins/jobs/${JOB_NAME}/builds/${BUILD_NUMBER}/log \
+                        | strings \
+                        | grep -v '^ha:////' \
+                        > /tmp/build-log-${BUILD_NUMBER}.txt 2>/dev/null \
+                        || echo 'Log not available' > /tmp/build-log-${BUILD_NUMBER}.txt
+                """
 
-                     def buildBy = sh(
-                        script: "echo ${currentBuild.getBuildCauses()[0]?.userId ?: 'jenkins-auto'}",
-                        returnStdout: true
-                    ).trim()
+                // 2. File upload - JSON body නෙවෙයි multipart
+                def logResponse = sh(
+                    script: """
+                        curl -s -X POST ${BLOCKCHAIN_URL}/log/upload \
+                            -H "x-api-key: \${BLOCKCHAIN_API_KEY}" \
+                            -F "buildId=${buildId}" \
+                            -F "logFile=@/tmp/build-log-${BUILD_NUMBER}.txt"
+                    """,
+                    returnStdout: true
+                ).trim()
 
-                     sh """
-                        cat /var/lib/jenkins/jobs/${JOB_NAME}/builds/${BUILD_NUMBER}/log > /tmp/build-log-${BUILD_NUMBER}.txt 2>/dev/null || echo 'Log not available' > /tmp/build-log-${BUILD_NUMBER}.txt
-                    """
+                sh "rm -f /tmp/build-log-${BUILD_NUMBER}.txt"
 
-                    // Log -> backend -> encrypt -> Pinata
-                    def logResponse = sh(
-                        script: """
-                            curl -s -X POST ${BLOCKCHAIN_URL}/log/upload \\
-                                -H "Content-Type: application/json" \\
-                                -H "x-api-key: ${BLOCKCHAIN_API_KEY}" \\
-                                -d '${groovy.json.JsonOutput.toJson([
-                                    logContent: logContent,
-                                    buildId   : env.BUILD_ID_BC
-                                ])}'
-                        """,
-                        returnStdout: true
-                    ).trim()
+                echo "Log Response: ${logResponse}"
 
-                    def logJson = readJSON text: logResponse
-                    def logCid  = logJson.logCid
-                    def logHash = logJson.logHash
+                def logJson = readJSON text: logResponse
+                def logCid  = logJson.logCid
+                def logHash = logJson.logHash
 
-                    echo "Log CID: ${logCid}"
-                    echo "Log Hash: ${logHash}"
+                echo "Log CID: ${logCid}"
+                echo "Log Hash: ${logHash}"
 
-                    //  Blockchain record - artifact hash + log hash + log cid
-                    def recordResponse = sh(
-                        script: """
-                            curl -s -X POST ${BLOCKCHAIN_URL}/record \\
-                                -H "Content-Type: application/json" \\
-                                -H "x-api-key: ${BLOCKCHAIN_API_KEY}" \\
-                                -d '${groovy.json.JsonOutput.toJson([
-                                    buildId     : env.BUILD_ID_BC ?: "demo-app-${BUILD_NUMBER}",
-                                    buildBy     : buildBy,
-                                    artifactHash: env.ARTIFACT_HASH ?: 'unknown',
-                                    logHash     : logHash,
-                                    logCid      : logCid
-                                ])}'
-                        """,
-                        returnStdout: true
-                    ).trim()
+                // 3. Blockchain record - separate file avoid JSON issues
+                def recordPayload = groovy.json.JsonOutput.toJson([
+                    buildId     : buildId,
+                    buildBy     : buildBy,
+                    artifactHash: env.ARTIFACT_HASH ?: 'unknown',
+                    logHash     : logHash,
+                    logCid      : logCid
+                ])
 
-                    def recordJson = readJSON text: recordResponse
-                    if (recordJson.status != 'Success') {
-                        echo "WARNING: Blockchain record failed: ${recordJson.error}"
-                    } else {
-                        echo "Build recorded on blockchain."
-                    }
+                writeFile file: '/tmp/record-payload.json', text: recordPayload
 
-                    // Full verify - artifact + log 
-                    def verifyResponse = sh(
-                        script: """
-                            curl -s -X POST ${BLOCKCHAIN_URL}/verify \\wwww 
-                                -H "Content-Type: application/json" \\
-                                -H "x-api-key: ${BLOCKCHAIN_API_KEY}" \\
-                                -d '${groovy.json.JsonOutput.toJson([
-                                    buildId             :env.BUILD_ID_BC ?: "demo-app-${BUILD_NUMBER}",
-                                    currentArtifactHash : env.ARTIFACT_HASH,
-                                    currentLogHash      : logHash
-                                ])}'
-                        """,
-                        returnStdout: true
-                    ).trim()
+                def recordResponse = sh(
+                    script: """
+                        curl -s -X POST ${BLOCKCHAIN_URL}/record \
+                            -H "Content-Type: application/json" \
+                            -H "x-api-key: \${BLOCKCHAIN_API_KEY}" \
+                            -d @/tmp/record-payload.json
+                    """,
+                    returnStdout: true
+                ).trim()
 
-                    def verifyJson = readJSON text: verifyResponse
-                    if (verifyJson.status == 'VERIFIED') {
-                        echo "Artifact + Log verified on blockchain."
-                    } else {
-                        echo "WARNING: Verification failed: ${verifyJson.error}"
-                    }
+                sh "rm -f /tmp/record-payload.json"
 
-                } catch (Exception e) {
-                    echo "Post-build blockchain record failed: ${e.message}"
+                def recordJson = readJSON text: recordResponse
+                if (recordJson.status != 'Success') {
+                    echo "WARNING: Blockchain record failed: ${recordJson.error}"
+                } else {
+                    echo "Build recorded on blockchain."
                 }
+
+                // 4. Verify
+                def verifyPayload = groovy.json.JsonOutput.toJson([
+                    buildId             : buildId,
+                    currentArtifactHash : env.ARTIFACT_HASH ?: 'unknown',
+                    currentLogHash      : logHash
+                ])
+
+                writeFile file: '/tmp/verify-payload.json', text: verifyPayload
+
+                def verifyResponse = sh(
+                    script: """
+                        curl -s -X POST ${BLOCKCHAIN_URL}/verify \
+                            -H "Content-Type: application/json" \
+                            -H "x-api-key: \${BLOCKCHAIN_API_KEY}" \
+                            -d @/tmp/verify-payload.json
+                    """,
+                    returnStdout: true
+                ).trim()
+
+                sh "rm -f /tmp/verify-payload.json"
+
+                def verifyJson = readJSON text: verifyResponse
+                if (verifyJson.status == 'VERIFIED') {
+                    echo "Artifact + Log verified on blockchain."
+                } else {
+                    echo "WARNING: Verification failed: ${verifyJson.error}"
+                }
+
+            } catch (Exception e) {
+                echo "Post-build blockchain record failed: ${e.message}"
             }
         }
     }
+}
 }
