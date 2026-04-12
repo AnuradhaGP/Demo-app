@@ -75,19 +75,18 @@ pipeline {
         stage('Run Container') {
             steps {
                  sh '''
-            docker stop demo-app-container || true
-            docker rm demo-app-container || true
-            sleep 3
-            docker run -d -p 3000:3000 --name demo-app-container demo-app || \
-            (docker rm -f demo-app-container && docker run -d -p 3000:3000 --name demo-app-container demo-app)
-        '''
-    }
-            }
+                docker stop demo-app-container || true
+                docker rm demo-app-container || true
+                sleep 3
+                docker run -d -p 3000:3000 --name demo-app-container demo-app || \
+                (docker rm -f demo-app-container && docker run -d -p 3000:3000 --name demo-app-container demo-app)
+                '''
+                }
         }
-    }
 
-      post {
-    always {
+    }
+    post {
+        always {
         script {
             try {
                 def buildId = env.BUILD_ID_BC ?: "demo-app-${BUILD_NUMBER}"
@@ -186,5 +185,9 @@ pipeline {
                 echo "Post-build blockchain record failed: ${e.message}"
             }
         }
+        }
     }
+
 }
+
+     
