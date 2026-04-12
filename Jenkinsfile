@@ -89,7 +89,7 @@ pipeline {
         always {
         script {
             try {
-                def buildId = env.BUILD_ID_BC ?: "demo-app-${BUILD_NUMBER}"
+                def buildId = env.BUILD_ID_BC ?: "${BUILD_NUMBER}"
                 def buildBy = currentBuild.getBuildCauses()[0]?.userId ?: 'jenkins-auto'
 
                 // 1. Log clean කරලා file එකට save
