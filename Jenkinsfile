@@ -116,7 +116,7 @@ pipeline {
 
                 echo "Log Response: ${logResponse}"
 
-                def logJson = readJSON text: logResponse
+                def logJson = new groovy.json.JsonSlurper().parseText(logResponse)
                 def logCid  = logJson.logCid
                 def logHash = logJson.logHash
 
@@ -146,7 +146,7 @@ pipeline {
 
                 sh "rm -f /tmp/record-payload.json"
 
-                def recordJson = readJSON text: recordResponse
+                def recordJson =  new groovy.json.JsonSlurper().parseText(recordResponse)
                 if (recordJson.status != 'Success') {
                     echo "WARNING: Blockchain record failed: ${recordJson.error}"
                 } else {
@@ -174,7 +174,7 @@ pipeline {
 
                 sh "rm -f /tmp/verify-payload.json"
 
-                def verifyJson = readJSON text: verifyResponse
+                def verifyJson = new groovy.json.JsonSlurper().parseText(verifyResponse)
                 if (verifyJson.status == 'VERIFIED') {
                     echo "Artifact + Log verified on blockchain."
                 } else {
