@@ -1,4 +1,4 @@
-@Library('jenkins-shared-lib') _
+@Library('bcai_jenkins_lib') _
 
 pipeline {
     agent any
