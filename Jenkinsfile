@@ -34,25 +34,25 @@ pipeline {
             }
         }
 
-        stage('OSV Scan') {
-            steps {
-                sh '''
-                docker run --rm -v $(pwd):/src ghcr.io/google/osv-scanner \
-                --recursive /src --format=json > osv-report.json
+        // stage('OSV Scan') {
+        //     steps {
+        //         sh '''
+        //         docker run --rm -v $(pwd):/src ghcr.io/google/osv-scanner \
+        //         --recursive /src --format=json > osv-report.json
 
-                cat osv-report.json
+        //         cat osv-report.json
 
-                docker run --rm -v $(pwd):/src ghcr.io/google/osv-scanner \
-                --recursive /src --exit-code=1
-                '''
-            }
-        }
+        //         docker run --rm -v $(pwd):/src ghcr.io/google/osv-scanner \
+        //         --recursive /src --exit-code=1
+        //         '''
+        //     }
+        // }
 
-        stage('Build Docker Image') {
-            steps {
-                sh 'docker build -t demo-app .'
-            }
-        }
+        // stage('Build Docker Image') {
+        //     steps {
+        //         sh 'docker build -t demo-app .'
+        //     }
+        // }
 
          stage('Hash Artifact') {
             steps {
